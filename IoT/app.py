@@ -11,9 +11,9 @@ RELAY_STATE = False
 PUMP_STATE = False  # Состояние насоса
 
 # Переменные для отслеживания состояния
-current_volume = 0.0
+received_volume = 0.0
 nominal_volume = 100.0
-real_volume = 57.0  # Реальный объём
+real_volume = 0.0  # Реальный объём
 is_filling = False
 
 # Установка расхода напрямую в коде
@@ -22,14 +22,14 @@ ANALOG_FLOW_RATE = DEFAULT_FLOW_RATE
 
 def update_flow_rate():
     """Обновляет текущий объём в зависимости от состояния слива."""
-    global current_volume, real_volume, ANALOG_FLOW_RATE, is_filling, RELAY_STATE, PUMP_STATE
+    global received_volume, real_volume, ANALOG_FLOW_RATE, is_filling, RELAY_STATE, PUMP_STATE
     while True:
         if is_filling and ANALOG_FLOW_RATE > 0:
             time.sleep(1)
             increment = ANALOG_FLOW_RATE
-            current_volume += increment
+            received_volume += increment
             real_volume += increment  # Увеличиваем реальный объём
-            if current_volume >= nominal_volume:
+            if real_volume >= nominal_volume:  # Остановка по реальному объёму
                 is_filling = False
                 RELAY_STATE = False  # Остановить слив при достижении номинального объёма
                 PUMP_STATE = False
@@ -45,7 +45,8 @@ thread.start()
 def index():
     """Главная страница."""
     return template('''<h1>Управление системой слива</h1>
-        <p>Текущий объём: {{current_volume}} литров</p>
+        <p>Принятый объём: {{received_volume}} литров</p>
+        <button onclick="resetVolume()">Обнулить</button>
         <p>Номинальный объём: {{nominal_volume}} литров</p>
         <p>Реальный объём: {{real_volume}} литров</p>
         <p>Текущая скорость потока: {{analog_flow_rate}} л/с</p>
@@ -62,11 +63,16 @@ def index():
                 await fetch("/stop", { method: "POST" });
                 updatePage();
             }
+            async function resetVolume() {
+                await fetch("/reset", { method: "POST" });
+                updatePage();
+            }
             async function updatePage() {
                 const response = await fetch("/status");
                 const data = await response.json();
                 document.body.innerHTML = `<h1>Управление системой слива</h1>
-                    <p>Текущий объём: ${data.current_volume} литров</p>
+                    <p>Принятый объём: ${data.received_volume} литров</p>
+                    <button onclick="resetVolume()">Обнулить</button>
                     <p>Номинальный объём: ${data.nominal_volume} литров</p>
                     <p>Реальный объём: ${data.real_volume} литров</p>
                     <p>Текущая скорость потока: ${data.analog_flow_rate} л/с</p>
@@ -77,7 +83,7 @@ def index():
             }
             setInterval(updatePage, 2000);
         </script>''', 
-        current_volume=current_volume, 
+        received_volume=received_volume, 
         nominal_volume=nominal_volume, 
         real_volume=real_volume, 
         analog_flow_rate=ANALOG_FLOW_RATE, 
@@ -103,11 +109,18 @@ def stop_filling():
     PUMP_STATE = False
     return {"status": "stopped"}
 
+@app.post('/reset')
+def reset_volume():
+    """Обнуляет принятый объём."""
+    global received_volume
+    received_volume = 0.0
+    return {"status": "reset"}
+
 @app.get('/status')
 def get_status():
     """Возвращает текущий статус системы."""
     return {
-        "current_volume": current_volume,
+        "received_volume": received_volume,
         "nominal_volume": nominal_volume,
         "real_volume": real_volume,
         "analog_flow_rate": ANALOG_FLOW_RATE,
