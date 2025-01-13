@@ -1,0 +1,41 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fuel Transfer</title>
+</head>
+<body>
+    <h1>Система слива топлива</h1>
+    <p>Текущая скорость потока: <span id="flowRate">0</span> имп/сек</p>
+    <p>Текущий объём: <span id="currentVolume">0</span> литров</p>
+    <p>Номинальный объём: <span id="nominalVolume">0</span> литров</p>
+    <p>Состояние: <span id="status">Ожидание</span></p>
+
+    <button onclick="startFilling()">Начать слив</button>
+    <button onclick="stopFilling()">Остановить слив</button>
+
+    <script>
+        function updateData() {
+            fetch('/')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('flowRate').innerText = data.flow_rate;
+                    document.getElementById('currentVolume').innerText = data.current_volume.toFixed(2);
+                    document.getElementById('nominalVolume').innerText = data.nominal_volume;
+                    document.getElementById('status').innerText = data.is_filling ? 'Слив идёт' : 'Ожидание';
+                });
+        }
+
+        function startFilling() {
+            fetch('/start', { method: 'POST' }).then(updateData);
+        }
+
+        function stopFilling() {
+            fetch('/stop', { method: 'POST' }).then(updateData);
+        }
+
+        setInterval(updateData, 1000);
+    </script>
+</body>
+</html>
