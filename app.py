@@ -1,64 +1,38 @@
 from bottle import Bottle, run, request, template
 import time
 from threading import Thread
-try:
-    import RPi.GPIO as GPIO
-except ImportError:
-    GPIO = None
 
 app = Bottle()
 
-#распиновка
-REAL_VOLUME_PIN = 17
-FLOW_RATE_PIN = 27
-PUMP_STATE_PIN = 22
-
-if GPIO:
-    GPIO.setmode(GPIO.BCM)
-    GPIO.setup(REAL_VOLUME_PIN, GPIO.IN)
-    GPIO.setup(FLOW_RATE_PIN, GPIO.IN)
-    GPIO.setup(PUMP_STATE_PIN, GPIO.OUT)
+# Эмуляция GPIO через переменные
+START_BUTTON_STATE = False
+ANALOG_FLOW_RATE = 0.0  # Аналоговый сигнал расходомера (л/с)
+RELAY_STATE = False
+PUMP_STATE = False  # Состояние насоса
 
 # Переменные для отслеживания состояния
 received_volume = 0.0
-nominal_volume = 100.0 # Номинальный объем цистерны
+nominal_volume = 100.0
 real_volume = 0.0  # Реальный объём
-analog_flow_rate = 0.0  # Аналоговый сигнал расходомера (л/с)
 is_filling = False
-pump_state = False  # Состояние насоса
 
-def read_real_volume():
-    # Читает реальный объём из GPIO.
-    if GPIO:
-        return GPIO.input(REAL_VOLUME_PIN)
-    return 0.0
-
-def read_flow_rate():
-    # Читает расход из GPIO.
-    if GPIO:
-        return GPIO.input(FLOW_RATE_PIN)
-    return 0.0
-
-def set_pump_state(state):
-    # Устанавливает состояние насоса.
-    global pump_state
-    pump_state = state
-    if GPIO:
-        GPIO.output(PUMP_STATE_PIN, GPIO.HIGH if state else GPIO.LOW)
+# Установка расхода напрямую в коде
+DEFAULT_FLOW_RATE = 2.0  # Установленный расход в литрах/секунду
+ANALOG_FLOW_RATE = DEFAULT_FLOW_RATE
 
 def update_flow_rate():
-    # Обновляет текущий объём в зависимости от состояния слива.
-    global received_volume, real_volume, analog_flow_rate, is_filling
+    """Обновляет текущий объём в зависимости от состояния слива."""
+    global received_volume, real_volume, ANALOG_FLOW_RATE, is_filling, RELAY_STATE, PUMP_STATE
     while True:
-        if is_filling:
+        if is_filling and ANALOG_FLOW_RATE > 0:
             time.sleep(1)
-            analog_flow_rate = read_flow_rate()
-            real_volume = read_real_volume()
-            increment = analog_flow_rate
+            increment = ANALOG_FLOW_RATE
             received_volume += increment
+            real_volume += increment  # Увеличиваем реальный объём
             if real_volume >= nominal_volume:  # Остановка по реальному объёму
                 is_filling = False
-                set_pump_state(False)
+                RELAY_STATE = False  # Остановить слив при достижении номинального объёма
+                PUMP_STATE = False
         else:
             time.sleep(1)
 
@@ -69,13 +43,13 @@ thread.start()
 
 @app.route('/')
 def index():
-    # Главная страница.
+    """Главная страница."""
     return template('''<h1>Управление системой слива</h1>
         <p>Принятый объём: {{received_volume}} литров</p>
         <button onclick="resetVolume()">Обнулить</button>
         <p>Номинальный объём: {{nominal_volume}} литров</p>
         <p>Реальный объём: {{real_volume}} литров</p>
-        <p>Расход: {{analog_flow_rate}} л/с</p>
+        <p>Текущая скорость потока: {{analog_flow_rate}} л/с</p>
         <p>Статус: {{status}}</p>
         <p>Состояние насоса: {{pump_state}}</p>
         <button onclick="startFilling()">Начать слив</button>
@@ -101,7 +75,7 @@ def index():
                     <button onclick="resetVolume()">Обнулить</button>
                     <p>Номинальный объём: ${data.nominal_volume} литров</p>
                     <p>Реальный объём: ${data.real_volume} литров</p>
-                    <p>Расход: ${data.analog_flow_rate} л/с</p>
+                    <p>Текущая скорость потока: ${data.analog_flow_rate} л/с</p>
                     <p>Статус: ${data.is_filling ? 'Слив идёт' : 'Слив остановлен'}</p>
                     <p>Состояние насоса: ${data.pump_state ? 'Включён' : 'Выключен'}</p>
                     <button onclick="startFilling()">Начать слив</button>
@@ -112,48 +86,47 @@ def index():
         received_volume=received_volume, 
         nominal_volume=nominal_volume, 
         real_volume=real_volume, 
-        analog_flow_rate=analog_flow_rate, 
+        analog_flow_rate=ANALOG_FLOW_RATE, 
         status="Слив идёт" if is_filling else "Слив остановлен",
-        pump_state="Включён" if pump_state else "Выключен"
+        pump_state="Включён" if PUMP_STATE else "Выключен"
     )
 
 @app.post('/start')
 def start_filling():
-    # Начинает процесс слива.
-    global is_filling
+    """Начинает процесс слива."""
+    global is_filling, RELAY_STATE, PUMP_STATE
     is_filling = True
-    set_pump_state(True)
+    RELAY_STATE = True
+    PUMP_STATE = True
     return {"status": "started"}
 
 @app.post('/stop')
 def stop_filling():
-    # Останавливает процесс слива.
-    global is_filling
+    """Останавливает процесс слива."""
+    global is_filling, RELAY_STATE, PUMP_STATE
     is_filling = False
-    set_pump_state(False)
+    RELAY_STATE = False
+    PUMP_STATE = False
     return {"status": "stopped"}
 
 @app.post('/reset')
 def reset_volume():
-    # Обнуляет принятый объём.
+    """Обнуляет принятый объём."""
     global received_volume
     received_volume = 0.0
     return {"status": "reset"}
 
 @app.get('/status')
 def get_status():
-    # Возвращает текущий статус системы.
+    """Возвращает текущий статус системы."""
     return {
         "received_volume": received_volume,
         "nominal_volume": nominal_volume,
         "real_volume": real_volume,
-        "analog_flow_rate": analog_flow_rate,
+        "analog_flow_rate": ANALOG_FLOW_RATE,
         "is_filling": is_filling,
-        "pump_state": pump_state
+        "pump_state": PUMP_STATE
     }
 
 if __name__ == '__main__':
     run(app, host='127.0.0.1', port=5000)
-
-if GPIO:
-    GPIO.cleanup()
