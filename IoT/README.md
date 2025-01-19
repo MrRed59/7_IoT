@@ -23,3 +23,6 @@
   - Показания расходомера (AI)
   - Управление насосом (DQ)
 
+![image](https://github.com/user-attachments/assets/6939f0db-0fdd-420d-853a-bd536fb212ac)
+![image](https://github.com/user-attachments/assets/f992e9a6-ea71-452c-88f6-84453e5f47f3)
+
